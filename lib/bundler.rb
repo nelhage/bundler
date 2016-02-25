@@ -3,6 +3,7 @@ require "fileutils"
 require "pathname"
 require "rbconfig"
 require "thread"
+require "yaml"
 require "bundler/environment_preserver"
 require "bundler/gem_remote_fetcher"
 require "bundler/rubygems_ext"
@@ -355,12 +356,23 @@ module Bundler
       # depend on "./" relative paths.
       SharedHelpers.chdir(path.dirname.to_s) do
         contents = path.read
+        hash = Digest::SHA1.hexdigest(contents)
+        cache_path = Pathname.new(File.join(user_cache, hash + ".gemspec"))
+        if File.file?(cache_path)
+          path = cache_path
+          contents = cache_path.read
+          validate = false
+        end
         if contents[0..2] == "---" # YAML header
           spec = eval_yaml_gemspec(path, contents)
         else
           spec = eval_gemspec(path, contents)
         end
         Bundler.rubygems.validate(spec) if spec && validate
+        if spec && cache_path != path
+          cache_path.dirname.mkpath
+          cache_path.write(spec.to_yaml)
+        end
         spec
       end
     rescue Gem::InvalidSpecificationException => e
