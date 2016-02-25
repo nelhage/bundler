@@ -10,6 +10,8 @@ module Bundler
     end
 
     def run
+      check_for_deployment_mode
+
       sources = Array(options[:source])
 
       gems.each do |gem_name|
@@ -54,18 +56,12 @@ module Bundler
           end
           active_spec = active_spec.last
 
-          if options[:major]
-            current_major = current_spec.version.segments.first
-            active_major = active_spec.version.segments.first
-            active_spec = nil unless active_major > current_major
-          end
-
-          if options[:minor]
-            current_minor = current_spec.version.segments[0, 2].compact.join(".")
-            active_minor = active_spec.version.segments[0, 2].compact.join(".")
-            active_spec = nil unless active_minor > current_minor
+          if options[:major] || options[:minor]
+            update_present = update_present_via_semver_portions(current_spec, active_spec, options)
+            active_spec = nil unless update_present
           end
         end
+
         next if active_spec.nil?
 
         gem_outdated = Gem::Version.new(active_spec.version) > Gem::Version.new(current_spec.version)
@@ -108,6 +104,35 @@ module Bundler
       else
         exit 1
       end
+    end
+
+  private
+
+    def check_for_deployment_mode
+      if Bundler.settings[:frozen]
+        error_message = "You are trying to check outdated gems in deployment mode. " \
+              "Run `bundle outdated` elsewhere.\n" \
+              "\nIf this is a development machine, remove the #{Bundler.default_gemfile} freeze" \
+              "\nby running `bundle install --no-deployment`."
+        raise ProductionError, error_message
+      end
+    end
+
+    def update_present_via_semver_portions(current_spec, active_spec, options)
+      current_major = current_spec.version.segments.first
+      active_major = active_spec.version.segments.first
+
+      update_present = false
+
+      update_present = active_major > current_major if options[:major]
+
+      if options[:minor] && current_major == active_major
+        current_minor = current_spec.version.segments[1, 1].first
+        active_minor = active_spec.version.segments[1, 1].first
+        update_present = active_minor > current_minor
+      end
+
+      update_present
     end
   end
 end
